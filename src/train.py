@@ -1,4 +1,4 @@
-import os
+import os 
 import sys
 sys.path.append(os.path.dirname(__file__))
 
@@ -10,8 +10,9 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Learning
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 import logging
 
-from model import BaselineCNN   
+from model import UNetSegmentation 
 from patch_datamodule import PatchDataModule
+from visualize import SegmentationVisualizer
 import config
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -46,18 +47,16 @@ def main(args):
     print(f"  Test patches:  {len(datamodule.test_ds)}")
     print("Dataset ready\n")
 
-
-    model = BaselineCNN(
-        num_classes=config.NUM_CLASSES,
-        in_channels=config.IN_CHANNELS,
+    model = UNetSegmentation(
+        in_channels=3,
+        num_classes=7,
         learning_rate=config.LEARNING_RATE,
     )
 
-
     checkpoint_callback = ModelCheckpoint(
         dirpath=config.CHECKPOINT_DIR,
-        filename="patchseg-{epoch:02d}-{val/loss:.4f}-{val/iou:.4f}",
-        monitor="val/iou",
+        filename="patchseg-{epoch:02d}-{val/loss:.4f}-{val/miou:.4f}",
+        monitor="val/miou",      
         mode="max",
         save_top_k=3,
         save_last=True,
@@ -65,10 +64,10 @@ def main(args):
     )
 
     early_stop_callback = EarlyStopping(
-        monitor="val/loss",
+        monitor="val/miou",
+        min_delta=1e-4,
         patience=config.EARLY_STOPPING_PATIENCE,
-        mode="min",
-        
+        mode="max",
         verbose=True,
     )
 
@@ -89,13 +88,16 @@ def main(args):
         if config.WANDB_WATCH_MODEL:
             wandb_logger.watch(model, log="all", log_freq=100)
 
-
     trainer = pl.Trainer(
         max_epochs=config.MAX_EPOCHS,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
-        callbacks=[checkpoint_callback, early_stop_callback, lr_monitor],
-        logger=loggers,
+        callbacks=[
+            checkpoint_callback,
+            early_stop_callback, 
+            lr_monitor,
+            SegmentationVisualizer(num_samples=3, every_n_epochs=10),],
+        logger=loggers if len(loggers) > 0 else None,
         log_every_n_steps=10,
         precision="16-mixed" if torch.cuda.is_available() else 32,
         benchmark=True,
@@ -110,14 +112,13 @@ def main(args):
     print(f"  Devices: {trainer.num_devices}")
     print(f"  Precision: {trainer.precision}\n")
 
-
     if args.resume_from_checkpoint:
         trainer.fit(model, datamodule, ckpt_path=args.resume_from_checkpoint)
     else:
         trainer.fit(model, datamodule)
 
-
-    trainer.test(model, datamodule, ckpt_path="best")
+    best_ckpt = checkpoint_callback.best_model_path if checkpoint_callback.best_model_path else None
+    trainer.test(model, datamodule, ckpt_path=best_ckpt)
 
     print("\nTraining complete")
     print(f"Best model: {checkpoint_callback.best_model_path}")

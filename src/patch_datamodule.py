@@ -21,9 +21,6 @@ class PatchDataModule(pl.LightningDataModule):
         self.img_size = img_size
 
         self.train_transform = A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
             A.Normalize(),
             ToTensorV2(),
         ])

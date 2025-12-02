@@ -31,7 +31,7 @@ class PatchDataset(Dataset):
 
         img = np.array(img)
         mask = np.array(mask)
-        mask = (mask > 128).astype(np.uint8) 
+        mask = mask.astype(np.int64)  
 
         if self.transform:
             aug = self.transform(image=img, mask=mask)

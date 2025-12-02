@@ -12,18 +12,6 @@ CLASS_NAMES = {
     6: 'Connective Tissue'
 }
 
-# Class weights for imbalanced dataset
-# Based on inverse frequency: weight = total_samples / (num_classes * class_count)
-CLASS_WEIGHTS = [
-    0.0,      # Background (not used in loss typically)
-    104.96,   # Neutrophil
-    2.05,     # Epithelial
-    4.68,     # Lymphocyte
-    17.37,    # Plasma
-    144.98,   # Eosinophil
-    4.44,     # Connective Tissue
-]
-
 # Model architecture
 NUM_CLASSES = 7
 IN_CHANNELS = 3
@@ -47,7 +35,7 @@ VAL_BATCH_SIZE = 8
 # Checkpointing
 CHECKPOINT_DIR = './checkpoints'
 LOG_DIR = './logs'
-EXPERIMENT_NAME = "baseline"
+EXPERIMENT_NAME = "unet"
 
 # Weights & Biases
 USE_WANDB = True

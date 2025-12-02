@@ -4,114 +4,166 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 
 
-
-def dice_coeff(pred, target, eps=1e-7):
-    pred = (pred > 0.5).float()
-    target = target.float()
-
-    if pred.dim() == 3:
-        pred = pred.unsqueeze(1)
-    if target.dim() == 3:
-        target = target.unsqueeze(1)
-
-    intersection = (pred * target).sum(dim=(1, 2, 3))
-    union = pred.sum(dim=(1, 2, 3)) + target.sum(dim=(1, 2, 3))
-    dice = (2 * intersection + eps) / (union + eps)
-    return dice.mean()
-
-
-def iou_coeff(pred, target, eps=1e-7):
-    pred = (pred > 0.5).float()
-    target = target.float()
-
-    if pred.dim() == 3:
-        pred = pred.unsqueeze(1)
-    if target.dim() == 3:
-        target = target.unsqueeze(1)
-
-    intersection = (pred * target).sum(dim=(1, 2, 3))
-    total = (pred + target).sum(dim=(1, 2, 3))
-    union = total - intersection
-    iou = (intersection + eps) / (union + eps)
-    return iou.mean()
-
-
-class BaselineCNN(pl.LightningModule):
-    def __init__(self, in_channels=3, num_classes=1, learning_rate=1e-3):
+class DoubleConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
 
-        self.save_hyperparameters()
-        self.learning_rate = learning_rate
-
-        # Encoder
-        self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2), 
-
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),  
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
         )
-
-        # Decoder
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, 2, stride=2),  
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, 16, 2, stride=2), 
-            nn.ReLU(),
-        )
-
-        self.out_conv = nn.Conv2d(16, 1, kernel_size=1)
-
-        self.loss_fn = nn.BCEWithLogitsLoss()
-
 
     def forward(self, x):
-        x = self.encoder(x)
-        x = self.decoder(x)
-        x = self.out_conv(x)
-        return x 
+        return self.block(x)
 
 
-    def shared_step(self, batch, stage="train"):
+class Down(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.pool = nn.MaxPool2d(2)
+        self.conv = DoubleConv(in_channels, out_channels)
+
+    def forward(self, x):
+        x = self.pool(x)
+        x = self.conv(x)
+        return x
+
+
+class Up(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.up = nn.ConvTranspose2d(in_channels // 2, in_channels // 2, kernel_size=2, stride=2)
+        self.conv = DoubleConv(in_channels, out_channels)
+
+    def forward(self, x, skip):
+        x = self.up(x)
+
+        diff_y = skip.size(2) - x.size(2)
+        diff_x = skip.size(3) - x.size(3)
+
+        if diff_y != 0 or diff_x != 0:
+            x = F.pad(
+                x,
+                [diff_x // 2, diff_x - diff_x // 2,
+                 diff_y // 2, diff_y - diff_y // 2]
+            )
+
+        x = torch.cat([skip, x], dim=1)
+        x = self.conv(x)
+        return x
+
+
+class OutConv(nn.Module):
+    def __init__(self, in_channels, num_classes):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, num_classes, kernel_size=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+def per_class_iou(logits, target, num_classes, eps=1e-6):
+    preds = torch.argmax(logits, dim=1)
+
+    ious = {}
+    for cls in range(num_classes):
+        pred_c = (preds == cls)
+        target_c = (target == cls)
+
+        inter = (pred_c & target_c).sum().item()
+        union = (pred_c | target_c).sum().item()
+
+        if union == 0:
+            iou = float("nan")
+        else:
+            iou = inter / (union + eps)
+
+        ious[cls] = iou
+
+    return ious
+
+
+def mean_iou(cls_ious):
+    vals = [v for v in cls_ious.values() if not (v != v)]   
+    if len(vals) == 0:
+        return 0.0
+    return sum(vals) / len(vals)
+
+
+def pixel_accuracy(logits, target):
+    preds = torch.argmax(logits, dim=1)
+    return (preds == target).float().mean()
+
+
+class UNetSegmentation(pl.LightningModule):
+    def __init__(self, in_channels=3, num_classes=7, learning_rate=1e-3):
+        super().__init__()
+        self.save_hyperparameters()
+
+        self.learning_rate = learning_rate
+        self.num_classes = num_classes
+
+        # Encoder
+        self.inc = DoubleConv(in_channels, 64)
+        self.down1 = Down(64, 128)
+        self.down2 = Down(128, 256)
+        self.down3 = Down(256, 512)
+        self.down4 = Down(512, 512)
+
+        # Decoder
+        self.up1 = Up(512 + 512, 256)
+        self.up2 = Up(256 + 256, 128)
+        self.up3 = Up(128 + 128, 64)
+        self.up4 = Up(64 + 64, 64)
+
+        self.outc = OutConv(64, num_classes)
+
+        self.loss_fn = nn.CrossEntropyLoss()
+
+    def forward(self, x):
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+
+        return self.outc(x)
+
+    def shared_step(self, batch, stage: str):
         images, masks = batch
-
-
-        logits = self(images)  
-
-        if masks.dim() == 3:
-            masks = masks.unsqueeze(1)
-        masks = masks.float()
-
+        logits = self(images)
         loss = self.loss_fn(logits, masks)
 
-        probs = torch.sigmoid(logits)
-        dice = dice_coeff(probs, masks)
-        iou = iou_coeff(probs, masks)
+        cls_ious = per_class_iou(logits, masks, self.num_classes)
+        miou = mean_iou(cls_ious)
+        acc = pixel_accuracy(logits, masks)
 
-        self.log(f"{stage}/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log(f"{stage}/dice", dice, on_step=False, on_epoch=True, prog_bar=True)
-        self.log(f"{stage}/iou", iou, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(f"{stage}/loss", loss, on_epoch=True, prog_bar=True)
+        self.log(f"{stage}/miou", miou, on_epoch=True, prog_bar=True)
+        self.log(f"{stage}/acc", acc, on_epoch=True, prog_bar=False)
+
+        for cls, iou in cls_ious.items():
+            self.log(f"{stage}/iou_class_{cls}", iou, on_epoch=True, prog_bar=False)
 
         return loss
-
 
     def training_step(self, batch, batch_idx):
         return self.shared_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
-        loss = self.shared_step(batch, "val")
-        return loss
+        return self.shared_step(batch, "val")
 
     def test_step(self, batch, batch_idx):
-        loss = self.shared_step(batch, "test")
-        return loss
-
+        return self.shared_step(batch, "test")
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
