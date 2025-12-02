@@ -52,6 +52,7 @@ def main(args):
         in_channels=3,
         num_classes=7,
         learning_rate=config.LEARNING_RATE,
+        class_weights=config.CLASS_WEIGHTS,
     )
 
     checkpoint_callback = ModelCheckpoint(
