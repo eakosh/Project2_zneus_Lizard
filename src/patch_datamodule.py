@@ -21,9 +21,45 @@ class PatchDataModule(pl.LightningDataModule):
         self.img_size = img_size
 
         self.train_transform = A.Compose([
-            A.Normalize(),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.RandomRotate90(p=0.5),
+
+            A.ShiftScaleRotate(
+                shift_limit=0.05,
+                scale_limit=0.10,
+                rotate_limit=20,
+                value=0, mask_value=0, p=0.5
+            ),
+
+            A.OneOf([
+                A.ColorJitter(0.2, 0.2, 0.2, 0.05, p=1.0),
+                A.HueSaturationValue(10, 15, 10, p=1.0)
+            ], p=0.4),
+
+            A.OneOf([
+                A.GaussNoise(var_limit=(5.0, 25.0), p=1.0),
+                A.GaussianBlur(3, p=1.0),
+                A.MedianBlur(3, p=1.0),
+            ], p=0.3),
+
+            A.OneOf([
+                A.ElasticTransform(alpha=20, sigma=20, alpha_affine=10,
+                                value=0, mask_value=0, p=1.0),
+                A.GridDistortion(distort_limit=0.05,
+                                value=0, mask_value=0, p=1.0),
+            ], p=0.2),
+
+            A.OneOf([
+                A.RGBShift(10, 10, 10, p=1.0),
+                A.RandomBrightnessContrast(0.15, 0.15, p=1.0),
+            ], p=0.3),
+
+            A.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225]),
             ToTensorV2(),
         ])
+
 
         self.val_transform = A.Compose([
             A.Normalize(),
