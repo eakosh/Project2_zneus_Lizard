@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
+from losses import ComboLoss
 
 
 class DoubleConv(nn.Module):
@@ -127,8 +128,13 @@ class UNetSegmentation(pl.LightningModule):
 
         self.outc = OutConv(64, num_classes)
 
-        self.register_buffer('class_weights', class_weights)
-        self.loss_fn = nn.CrossEntropyLoss(weight=self.class_weights)
+        self.loss_fn = ComboLoss(
+            gamma=2.0,
+            ce_weight=0.3,
+            focal_weight=0.5,
+            dice_weight=0.2
+        )
+
 
     def forward(self, x):
         x1 = self.inc(x)
