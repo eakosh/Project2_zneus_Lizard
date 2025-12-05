@@ -68,7 +68,6 @@ class Up(nn.Module):
         return x
 
 
-
 class OutConv(nn.Module):
     def __init__(self, in_channels, num_classes):
         super().__init__()
