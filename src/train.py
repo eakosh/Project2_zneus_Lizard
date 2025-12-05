@@ -51,7 +51,7 @@ def main(args):
     model = Virchow2UPerNetSegmentation(
         in_channels=3,
         num_classes=7,
-        learning_rate=1e-4,
+        learning_rate=4e-4,
         freeze_encoder=True, 
     )
 
