@@ -55,15 +55,15 @@ def main(args):
         freeze_encoder=True, 
     )
 
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=config.CHECKPOINT_DIR,
-        filename="patchseg-{epoch:02d}-{val/loss:.4f}-{val/miou:.4f}",
-        monitor="val/miou",      
-        mode="max",
-        save_top_k=3,
-        save_last=True,
-        verbose=True,
-    )
+    # checkpoint_callback = ModelCheckpoint(
+    #     dirpath=config.CHECKPOINT_DIR,
+    #     filename="patchseg-{epoch:02d}-{val/loss:.4f}-{val/miou:.4f}",
+    #     monitor="val/miou",      
+    #     mode="max",
+    #     save_top_k=3,
+    #     save_last=True,
+    #     verbose=True,
+    # )
 
     early_stop_callback = EarlyStopping(
         monitor="val/miou",
@@ -96,7 +96,7 @@ def main(args):
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
         callbacks=[
-            checkpoint_callback,
+            # checkpoint_callback,
             early_stop_callback, 
             lr_monitor,
             SegmentationVisualizer(
@@ -125,11 +125,11 @@ def main(args):
     else:
         trainer.fit(model, datamodule)
 
-    best_ckpt = checkpoint_callback.best_model_path if checkpoint_callback.best_model_path else None
-    trainer.test(model, datamodule, ckpt_path=best_ckpt)
+    # best_ckpt = checkpoint_callback.best_model_path if checkpoint_callback.best_model_path else None
+    # trainer.test(model, datamodule, ckpt_path=best_ckpt)
 
     print("\nTraining complete")
-    print(f"Best model: {checkpoint_callback.best_model_path}")
+    # print(f"Best model: {checkpoint_callback.best_model_path}")
     if config.USE_WANDB:
         print(f"WandB: {wandb_logger.experiment.url}")
 
