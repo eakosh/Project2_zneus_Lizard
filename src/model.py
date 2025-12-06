@@ -367,7 +367,16 @@ class Virchow2UNIPyramid(pl.LightningModule):
         logits = self(imgs)
         loss = self.loss_fn(logits, masks.long())
 
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        cls_ious = per_class_iou(logits, masks, self.num_classes)
+        miou = mean_iou(cls_ious)
+        acc = pixel_accuracy(logits, masks)
+
+        self.log(f"train/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"train/miou", miou, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"train/acc", acc, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
+
+        for cls, iou in cls_ious.items():
+            self.log(f"train/iou_class_{cls}", iou, on_epoch=True, prog_bar=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -375,7 +384,33 @@ class Virchow2UNIPyramid(pl.LightningModule):
         logits = self(imgs)
         loss = self.loss_fn(logits, masks.long())
 
-        self.log("val/loss", loss, on_epoch=True, prog_bar=True)
+        cls_ious = per_class_iou(logits, masks, self.num_classes)
+        miou = mean_iou(cls_ious)
+        acc = pixel_accuracy(logits, masks)
+
+        self.log(f"val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"val/miou", miou, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"val/acc", acc, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
+
+        for cls, iou in cls_ious.items():
+            self.log(f"val/iou_class_{cls}", iou, on_epoch=True, prog_bar=False)
+        return loss
+    
+    def test_step(self, batch, batch_idx):
+        imgs, masks = batch
+        logits = self(imgs)
+        loss = self.loss_fn(logits, masks.long())
+
+        cls_ious = per_class_iou(logits, masks, self.num_classes)
+        miou = mean_iou(cls_ious)
+        acc = pixel_accuracy(logits, masks)
+
+        self.log(f"test/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"test/miou", miou, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"test/acc", acc, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
+
+        for cls, iou in cls_ious.items():
+            self.log(f"test/iou_class_{cls}", iou, on_epoch=True, prog_bar=False)
         return loss
 
     def configure_optimizers(self):
