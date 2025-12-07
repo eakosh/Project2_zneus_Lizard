@@ -105,7 +105,7 @@ def per_class_iou(logits, target, num_classes, eps=1e-6):
 
 
 def mean_iou(cls_ious):
-    """Average IoU across classes (excludes NaN)"""
+    """Average IoU across classes"""
     vals = [v for v in cls_ious.values() if not (v != v)]   
     if len(vals) == 0:
         return 0.0
