@@ -34,12 +34,12 @@ BASE_CHANNELS = 64
 DEPTH = 4
 
 # Training parameters
-PATCH_SIZE = 224
+PATCH_SIZE = 256
 STRIDE = 128  
 BATCH_SIZE = 16
 NUM_WORKERS = 4
 PIN_MEMORY = True
-LEARNING_RATE = 4e-4
+LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5
 MAX_EPOCHS = 100
 EARLY_STOPPING_PATIENCE = 8
@@ -50,7 +50,7 @@ VAL_BATCH_SIZE = 8
 # Checkpointing
 CHECKPOINT_DIR = './checkpoints'
 LOG_DIR = './logs'
-EXPERIMENT_NAME = "unet_normed"
+EXPERIMENT_NAME = "unet_class_weights"
 
 # Weights & Biases
 USE_WANDB = True
