@@ -429,3 +429,224 @@ class Virchow2UNIPyramid(pl.LightningModule):
                 "monitor": "val/loss",
             },
         }
+
+
+
+import math
+from typing import Optional
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import pytorch_lightning as pl
+import timm
+from timm.layers import SwiGLUPacked
+
+
+def multiclass_soft_dice(logits: torch.Tensor, target: torch.Tensor, eps: float = 1e-7):
+    num_classes = logits.shape[1]
+    probs = F.softmax(logits, dim=1)
+    target_onehot = F.one_hot(target.long(), num_classes).permute(0, 3, 1, 2).float()
+
+    dims = (0, 2, 3)
+    intersection = torch.sum(probs * target_onehot, dims)
+    cardinality = torch.sum(probs + target_onehot, dims)
+    dice_per_class = (2.0 * intersection + eps) / (cardinality + eps)
+
+    return dice_per_class.mean()
+
+
+def multiclass_soft_iou(logits: torch.Tensor, target: torch.Tensor, eps: float = 1e-7):
+    num_classes = logits.shape[1]
+    probs = F.softmax(logits, dim=1)
+    target_onehot = F.one_hot(target.long(), num_classes).permute(0, 3, 1, 2).float()
+
+    dims = (0, 2, 3)
+    intersection = torch.sum(probs * target_onehot, dims)
+    union = torch.sum(probs + target_onehot - probs * target_onehot, dims)
+    iou_per_class = (intersection + eps) / (union + eps)
+
+    return iou_per_class.mean()
+
+
+
+class ConvBlockMini(nn.Module):
+    def __init__(self, in_ch, out_ch, dropout: float = 0.1):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout),
+
+            nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class UpBlockMini(nn.Module):
+    def __init__(self, in_ch, skip_ch, out_ch, dropout: float = 0.1):
+        super().__init__()
+        self.conv = ConvBlockMini(in_ch + skip_ch, out_ch, dropout=dropout)
+
+    def forward(self, x, skip):
+        x = F.interpolate(x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
+        x = torch.cat([x, skip], dim=1)
+        return self.conv(x)
+
+
+
+class Virchow2MiniUNI(pl.LightningModule):
+    def __init__(
+        self,
+        num_classes: int = 7,
+        lr: float = 1e-4,
+        encoder_trainable: bool = False,   
+        weight_decay: float = 1e-4,
+        loss_fn: Optional[nn.Module] = None, 
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.save_hyperparameters(ignore=["loss_fn"])
+
+        self.encoder = timm.create_model(
+            "hf-hub:paige-ai/Virchow2",
+            pretrained=True,
+            mlp_layer=SwiGLUPacked,
+            act_layer=nn.SiLU,
+        )
+        self.encoder_embed_dim = 1280
+
+        if not encoder_trainable:
+            for p in self.encoder.parameters():
+                p.requires_grad = False
+
+        base_ch = 128  
+        self.proj = nn.Conv2d(self.encoder_embed_dim, base_ch, kernel_size=1)
+
+        self.down1 = nn.Conv2d(base_ch, base_ch * 2, kernel_size=3, stride=2, padding=1)   # 16->8
+        self.down2 = nn.Conv2d(base_ch * 2, base_ch * 4, kernel_size=3, stride=2, padding=1)  # 8->4
+        self.down3 = nn.Conv2d(base_ch * 4, base_ch * 8, kernel_size=3, stride=2, padding=1)  # 4->2
+
+        self.enc1 = ConvBlockMini(base_ch, base_ch, dropout=dropout)            # 16x16
+        self.enc2 = ConvBlockMini(base_ch * 2, base_ch * 2, dropout=dropout)    # 8x8
+        self.enc3 = ConvBlockMini(base_ch * 4, base_ch * 4, dropout=dropout)    # 4x4
+        self.enc4 = ConvBlockMini(base_ch * 8, base_ch * 8, dropout=dropout)    # 2x2
+
+        self.up3 = UpBlockMini(base_ch * 8, base_ch * 4, base_ch * 4, dropout=dropout)
+        self.up2 = UpBlockMini(base_ch * 4, base_ch * 2, base_ch * 2, dropout=dropout)
+        self.up1 = UpBlockMini(base_ch * 2, base_ch, base_ch, dropout=dropout)
+
+        self.seg_head = nn.Sequential(
+            nn.Conv2d(base_ch, base_ch, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(base_ch),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(base_ch, num_classes, kernel_size=1),
+        )
+
+        if loss_fn is None:
+            self.ce_loss = nn.CrossEntropyLoss()
+            self.use_combo_loss = True
+        else:
+            self.loss_fn = loss_fn
+            self.use_combo_loss = False
+
+
+    def _encode_virchow_tokens(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.encoder(x)   # B x (1+4+N) x 1280
+        patch_tokens = out[:, 5:, :]  
+
+        B, N, C = patch_tokens.shape
+        H_t = W_t = int(math.sqrt(N))
+        assert H_t * W_t == N, f"Число токенов {N} не является квадратом, H_t*W_t != N"
+
+        feat = patch_tokens.transpose(1, 2).reshape(B, C, H_t, W_t)
+        return feat
+
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, _, H, W = x.shape
+
+        feat = self._encode_virchow_tokens(x)      # B x 1280 x H_t x W_t
+        feat = self.proj(feat)                     # B x base_ch x H_t x W_t
+
+        f1 = self.enc1(feat)
+        f2 = self.enc2(self.down1(f1))
+        f3 = self.enc3(self.down2(f2))
+        f4 = self.enc4(self.down3(f3))
+
+        u3 = self.up3(f4, f3)
+        u2 = self.up2(u3, f2)
+        u1 = self.up1(u2, f1)
+
+        logits_tok = self.seg_head(u1)             # B x C x H_t x W_t
+
+        logits = F.interpolate(
+            logits_tok,
+            size=(H, W),
+            mode="bilinear",
+            align_corners=False,
+        )
+        return logits
+
+
+    def _compute_loss(self, logits, masks):
+        if self.use_combo_loss:
+            ce = self.ce_loss(logits, masks.long())
+            dice = 1.0 - multiclass_soft_dice(logits, masks)
+            loss = 0.5 * ce + 0.5 * dice
+            return loss, ce, dice
+        else:
+            loss = self.loss_fn(logits, masks)
+            return loss, loss, torch.tensor(0.0, device=logits.device)
+
+    def training_step(self, batch, batch_idx):
+        imgs, masks = batch  # imgs: B x 3 x H x W, masks: B x H x W
+        logits = self(imgs)
+        loss, ce, dice_loss = self._compute_loss(logits, masks)
+
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        if self.use_combo_loss:
+            self.log("train/ce", ce, on_step=False, on_epoch=True)
+            self.log("train/dice_loss", dice_loss, on_step=False, on_epoch=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        imgs, masks = batch
+        logits = self(imgs)
+        loss, ce, dice_loss = self._compute_loss(logits, masks)
+
+        dice = multiclass_soft_dice(logits, masks)
+        miou = multiclass_soft_iou(logits, masks)
+
+        self.log("val/loss", loss, on_epoch=True, prog_bar=True)
+        self.log("val/dice", dice, on_epoch=True, prog_bar=True)
+        self.log("val/miou", miou, on_epoch=True, prog_bar=True)
+
+        return {
+            "val_loss": loss,
+            "val_dice": dice,
+            "val_miou": miou,
+        }
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(
+            filter(lambda p: p.requires_grad, self.parameters()),
+            lr=self.hparams.lr,
+            weight_decay=self.hparams.weight_decay,
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.5, patience=5
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val/loss",
+            },
+        }

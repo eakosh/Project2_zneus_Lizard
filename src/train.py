@@ -11,7 +11,7 @@ from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 import logging
 from pytorch_lightning.callbacks.progress import TQDMProgressBar
 
-from model import Virchow2UNIPyramid
+from model import Virchow2MiniUNI
 from losses import ComboLoss
 from patch_datamodule import PatchDataModule
 from visualize import SegmentationVisualizer
@@ -55,12 +55,13 @@ def main(args):
         focal_weight=0.5,
         dice_weight=0.2
     )  
-    
-    model = Virchow2UNIPyramid(
-        num_classes=7,
+
+    model = Virchow2MiniUNI(
+        num_classes=7,          
         lr=1e-4,
         encoder_trainable=False,
-        loss_fn=loss_fn,
+        weight_decay=1e-4,
+        dropout=0.1,
     )
 
     # checkpoint_callback = ModelCheckpoint(
