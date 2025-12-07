@@ -25,6 +25,7 @@ logging.getLogger('pydantic').setLevel(logging.ERROR)
 
 
 def main(args):
+    """Train U-Net with early stopping and W&B logging"""
     pl.seed_everything(42, workers=True)
 
     os.makedirs(config.CHECKPOINT_DIR, exist_ok=True)

@@ -2,13 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-import timm
-from timm.layers import SwiGLUPacked
 
 from losses import ComboLoss
 
 
 class DoubleConv(nn.Module):
+    """Two conv layers with BN and ReLU"""
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.block = nn.Sequential(
@@ -26,6 +25,7 @@ class DoubleConv(nn.Module):
 
 
 class Down(nn.Module):
+    """Downsample with MaxPool + DoubleConv"""
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.pool = nn.MaxPool2d(2)
@@ -38,6 +38,7 @@ class Down(nn.Module):
 
 
 class Up(nn.Module):
+    """Upsample with attention gate and skip connections"""
     def __init__(self, in_channels, out_channels):
         super().__init__()
 
@@ -72,6 +73,7 @@ class Up(nn.Module):
 
 
 class OutConv(nn.Module):
+    """Final 1x1 conv for class predictions"""
     def __init__(self, in_channels, num_classes):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, num_classes, kernel_size=1)
@@ -81,6 +83,7 @@ class OutConv(nn.Module):
 
 
 def per_class_iou(logits, target, num_classes, eps=1e-6):
+    """Calculate IoU for each class"""
     preds = torch.argmax(logits, dim=1)
 
     ious = {}
@@ -102,6 +105,7 @@ def per_class_iou(logits, target, num_classes, eps=1e-6):
 
 
 def mean_iou(cls_ious):
+    """Average IoU across classes (excludes NaN)"""
     vals = [v for v in cls_ious.values() if not (v != v)]   
     if len(vals) == 0:
         return 0.0
@@ -109,11 +113,13 @@ def mean_iou(cls_ious):
 
 
 def pixel_accuracy(logits, target):
+    """Pixel-wise accuracy"""
     preds = torch.argmax(logits, dim=1)
     return (preds == target).float().mean()
 
 
 class AttentionGate(nn.Module):
+    """Attention mechanism for skip connections"""
     def __init__(self, in_g, in_x, inter_channels):
         super().__init__()
 
@@ -147,11 +153,12 @@ class AttentionGate(nn.Module):
 
 
 class UNetSegmentation(pl.LightningModule):
+    """U-Net with attention gates for nuclei segmentation"""
     def __init__(self,
                 class_weights,
-                in_channels=3, 
-                num_classes=7, 
-                learning_rate=1e-3, 
+                in_channels=3,
+                num_classes=7,
+                learning_rate=1e-3,
                 ):
         super().__init__()
         self.save_hyperparameters()
@@ -159,14 +166,12 @@ class UNetSegmentation(pl.LightningModule):
         self.learning_rate = learning_rate
         self.num_classes = num_classes
 
-        # Encoder
         self.inc = DoubleConv(in_channels, 64)
         self.down1 = Down(64, 128)
         self.down2 = Down(128, 256)
         self.down3 = Down(256, 512)
         self.down4 = Down(512, 512)
 
-        # Decoder
         self.up1 = Up(512 + 512, 256)
         self.up2 = Up(256 + 256, 128)
         self.up3 = Up(128 + 128, 64)
@@ -228,425 +233,3 @@ class UNetSegmentation(pl.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
-
-
-
-
-import math
-from typing import Optional
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import pytorch_lightning as pl
-import timm
-from timm.layers import SwiGLUPacked
-
-
-class ConvBlock(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class UpBlock(nn.Module):
-    def __init__(self, in_ch, skip_ch, out_ch):
-        super().__init__()
-        self.conv = ConvBlock(in_ch + skip_ch, out_ch)
-
-    def forward(self, x, skip):
-        # x: low-res; skip: high-res
-        x = F.interpolate(x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
-        x = torch.cat([x, skip], dim=1)
-        return self.conv(x)
-
-
-class Virchow2UNIPyramid(pl.LightningModule):
-    def __init__(
-        self,
-        num_classes: int = 7,            
-        lr: float = 1e-4,
-        encoder_trainable: bool = False, 
-        weight_decay: float = 1e-4,
-        loss_fn: Optional[nn.Module] = None,    
-    ):
-        super().__init__()
-        self.save_hyperparameters(ignore=["loss_fn"])
-
-        self.encoder = timm.create_model(
-            "hf-hub:paige-ai/Virchow2",
-            pretrained=True,
-            mlp_layer=SwiGLUPacked,
-            act_layer=nn.SiLU,
-        )
-
-        self.encoder_embed_dim = 1280
-
-        if not encoder_trainable:
-            for p in self.encoder.parameters():
-                p.requires_grad = False
-
-        base_ch = 256
-        self.proj = nn.Conv2d(self.encoder_embed_dim, base_ch, kernel_size=1)
-
-        self.down1 = nn.Conv2d(base_ch, base_ch * 2, kernel_size=3, stride=2, padding=1)  # 16→8
-        self.down2 = nn.Conv2d(base_ch * 2, base_ch * 4, kernel_size=3, stride=2, padding=1)  # 8→4
-        self.down3 = nn.Conv2d(base_ch * 4, base_ch * 8, kernel_size=3, stride=2, padding=1)  # 4→2
-
-        self.enc1 = ConvBlock(base_ch, base_ch)           # 16×16
-        self.enc2 = ConvBlock(base_ch * 2, base_ch * 2)   # 8×8
-        self.enc3 = ConvBlock(base_ch * 4, base_ch * 4)   # 4×4
-        self.enc4 = ConvBlock(base_ch * 8, base_ch * 8)   # 2×2
-
-        self.up3 = UpBlock(in_ch=base_ch * 8, skip_ch=base_ch * 4, out_ch=base_ch * 4)
-        self.up2 = UpBlock(in_ch=base_ch * 4, skip_ch=base_ch * 2, out_ch=base_ch * 2)
-        self.up1 = UpBlock(in_ch=base_ch * 2, skip_ch=base_ch, out_ch=base_ch)
-
-        self.seg_head = nn.Sequential(
-            nn.Conv2d(base_ch, base_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(base_ch),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(base_ch, num_classes, kernel_size=1),
-        )
-
-        if loss_fn is None:
-            self.loss_fn = nn.CrossEntropyLoss() 
-        else:
-            self.loss_fn = loss_fn
-
-
-    def _encode_virchow_tokens(self, x: torch.Tensor) -> torch.Tensor:
-        out = self.encoder(x)  # B × 261 × 1280
-        patch_tokens = out[:, 5:, :]  # B × N × 1280
-
-        B, N, C = patch_tokens.shape
-        H_t = W_t = int(math.sqrt(N))
-        assert H_t * W_t == N, f"The num of tokens {N} is not the square, H_t*W_t != N"
-
-        feat = patch_tokens.transpose(1, 2).reshape(B, C, H_t, W_t)
-        return feat
-
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, _, H, W = x.shape
-
-        feat = self._encode_virchow_tokens(x)      # B × 1280 × H_t × W_t
-        feat = self.proj(feat)                     # B × 256 × H_t × W_t
-
-        f1 = self.enc1(feat)                       # B × 256 × H_t × W_t
-        f2 = self.enc2(self.down1(f1))             # B × 512 × H_t/2 × W_t/2
-        f3 = self.enc3(self.down2(f2))             # B × 1024 × H_t/4 × W_t/4
-        f4 = self.enc4(self.down3(f3))             # B × 2048 × H_t/8 × W_t/8
-
-        u3 = self.up3(f4, f3)                      # B × 1024 × H_t/4 × W_t/4
-        u2 = self.up2(u3, f2)                      # B × 512 × H_t/2 × W_t/2
-        u1 = self.up1(u2, f1)                      # B × 256 × H_t × W_t
-
-        logits_tok = self.seg_head(u1)             # B × num_classes × H_t × W_t
-
-        logits = F.interpolate(
-            logits_tok,
-            size=(H, W),
-            mode="bilinear",
-            align_corners=False,
-        )
-        return logits
-
-    def training_step(self, batch, batch_idx):
-        imgs, masks = batch  
-        logits = self(imgs)
-        loss = self.loss_fn(logits, masks.long())
-
-        cls_ious = per_class_iou(logits, masks, 7)
-        miou = mean_iou(cls_ious)
-        acc = pixel_accuracy(logits, masks)
-
-        self.log(f"train/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f"train/miou", miou, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f"train/acc", acc, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
-
-        for cls, iou in cls_ious.items():
-            self.log(f"train/iou_class_{cls}", iou, on_epoch=True, prog_bar=False)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        imgs, masks = batch
-        logits = self(imgs)
-        loss = self.loss_fn(logits, masks.long())
-
-        cls_ious = per_class_iou(logits, masks, 7)
-        miou = mean_iou(cls_ious)
-        acc = pixel_accuracy(logits, masks)
-
-        self.log(f"val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f"val/miou", miou, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f"val/acc", acc, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
-
-        for cls, iou in cls_ious.items():
-            self.log(f"val/iou_class_{cls}", iou, on_epoch=True, prog_bar=False)
-        return loss
-    
-    def test_step(self, batch, batch_idx):
-        imgs, masks = batch
-        logits = self(imgs)
-        loss = self.loss_fn(logits, masks.long())
-
-        cls_ious = per_class_iou(logits, masks, 7)
-        miou = mean_iou(cls_ious)
-        acc = pixel_accuracy(logits, masks)
-
-        self.log(f"test/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f"test/miou", miou, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f"test/acc", acc, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
-
-        for cls, iou in cls_ious.items():
-            self.log(f"test/iou_class_{cls}", iou, on_epoch=True, prog_bar=False)
-        return loss
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
-            filter(lambda p: p.requires_grad, self.parameters()),
-            lr=self.hparams.lr,
-            weight_decay=self.hparams.weight_decay,
-        )
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=5
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "monitor": "val/loss",
-            },
-        }
-
-
-
-import math
-from typing import Optional
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import pytorch_lightning as pl
-import timm
-from timm.layers import SwiGLUPacked
-
-
-def multiclass_soft_dice(logits: torch.Tensor, target: torch.Tensor, eps: float = 1e-7):
-    num_classes = logits.shape[1]
-    probs = F.softmax(logits, dim=1)
-    target_onehot = F.one_hot(target.long(), num_classes).permute(0, 3, 1, 2).float()
-
-    dims = (0, 2, 3)
-    intersection = torch.sum(probs * target_onehot, dims)
-    cardinality = torch.sum(probs + target_onehot, dims)
-    dice_per_class = (2.0 * intersection + eps) / (cardinality + eps)
-
-    return dice_per_class.mean()
-
-
-def multiclass_soft_iou(logits: torch.Tensor, target: torch.Tensor, eps: float = 1e-7):
-    num_classes = logits.shape[1]
-    probs = F.softmax(logits, dim=1)
-    target_onehot = F.one_hot(target.long(), num_classes).permute(0, 3, 1, 2).float()
-
-    dims = (0, 2, 3)
-    intersection = torch.sum(probs * target_onehot, dims)
-    union = torch.sum(probs + target_onehot - probs * target_onehot, dims)
-    iou_per_class = (intersection + eps) / (union + eps)
-
-    return iou_per_class.mean()
-
-
-
-class ConvBlockMini(nn.Module):
-    def __init__(self, in_ch, out_ch, dropout: float = 0.1):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout),
-
-            nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class UpBlockMini(nn.Module):
-    def __init__(self, in_ch, skip_ch, out_ch, dropout: float = 0.1):
-        super().__init__()
-        self.conv = ConvBlockMini(in_ch + skip_ch, out_ch, dropout=dropout)
-
-    def forward(self, x, skip):
-        x = F.interpolate(x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
-        x = torch.cat([x, skip], dim=1)
-        return self.conv(x)
-
-
-
-class Virchow2MiniUNI(pl.LightningModule):
-    def __init__(
-        self,
-        num_classes: int = 7,
-        lr: float = 1e-4,
-        encoder_trainable: bool = False,   
-        weight_decay: float = 1e-4,
-        loss_fn: Optional[nn.Module] = None, 
-        dropout: float = 0.1,
-    ):
-        super().__init__()
-        self.save_hyperparameters(ignore=["loss_fn"])
-
-        self.encoder = timm.create_model(
-            "hf-hub:paige-ai/Virchow2",
-            pretrained=True,
-            mlp_layer=SwiGLUPacked,
-            act_layer=nn.SiLU,
-        )
-        self.encoder_embed_dim = 1280
-
-        if not encoder_trainable:
-            for p in self.encoder.parameters():
-                p.requires_grad = False
-
-        base_ch = 128  
-        self.proj = nn.Conv2d(self.encoder_embed_dim, base_ch, kernel_size=1)
-
-        self.down1 = nn.Conv2d(base_ch, base_ch * 2, kernel_size=3, stride=2, padding=1)   # 16->8
-        self.down2 = nn.Conv2d(base_ch * 2, base_ch * 4, kernel_size=3, stride=2, padding=1)  # 8->4
-        self.down3 = nn.Conv2d(base_ch * 4, base_ch * 8, kernel_size=3, stride=2, padding=1)  # 4->2
-
-        self.enc1 = ConvBlockMini(base_ch, base_ch, dropout=dropout)            # 16x16
-        self.enc2 = ConvBlockMini(base_ch * 2, base_ch * 2, dropout=dropout)    # 8x8
-        self.enc3 = ConvBlockMini(base_ch * 4, base_ch * 4, dropout=dropout)    # 4x4
-        self.enc4 = ConvBlockMini(base_ch * 8, base_ch * 8, dropout=dropout)    # 2x2
-
-        self.up3 = UpBlockMini(base_ch * 8, base_ch * 4, base_ch * 4, dropout=dropout)
-        self.up2 = UpBlockMini(base_ch * 4, base_ch * 2, base_ch * 2, dropout=dropout)
-        self.up1 = UpBlockMini(base_ch * 2, base_ch, base_ch, dropout=dropout)
-
-        self.seg_head = nn.Sequential(
-            nn.Conv2d(base_ch, base_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(base_ch),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout),
-            nn.Conv2d(base_ch, num_classes, kernel_size=1),
-        )
-
-        if loss_fn is None:
-            self.ce_loss = nn.CrossEntropyLoss()
-            self.use_combo_loss = True
-        else:
-            self.loss_fn = loss_fn
-            self.use_combo_loss = False
-
-
-    def _encode_virchow_tokens(self, x: torch.Tensor) -> torch.Tensor:
-        out = self.encoder(x)   # B x (1+4+N) x 1280
-        patch_tokens = out[:, 5:, :]  
-
-        B, N, C = patch_tokens.shape
-        H_t = W_t = int(math.sqrt(N))
-        assert H_t * W_t == N, f"Число токенов {N} не является квадратом, H_t*W_t != N"
-
-        feat = patch_tokens.transpose(1, 2).reshape(B, C, H_t, W_t)
-        return feat
-
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, _, H, W = x.shape
-
-        feat = self._encode_virchow_tokens(x)      # B x 1280 x H_t x W_t
-        feat = self.proj(feat)                     # B x base_ch x H_t x W_t
-
-        f1 = self.enc1(feat)
-        f2 = self.enc2(self.down1(f1))
-        f3 = self.enc3(self.down2(f2))
-        f4 = self.enc4(self.down3(f3))
-
-        u3 = self.up3(f4, f3)
-        u2 = self.up2(u3, f2)
-        u1 = self.up1(u2, f1)
-
-        logits_tok = self.seg_head(u1)             # B x C x H_t x W_t
-
-        logits = F.interpolate(
-            logits_tok,
-            size=(H, W),
-            mode="bilinear",
-            align_corners=False,
-        )
-        return logits
-
-
-    def _compute_loss(self, logits, masks):
-        if self.use_combo_loss:
-            ce = self.ce_loss(logits, masks.long())
-            dice = 1.0 - multiclass_soft_dice(logits, masks)
-            loss = 0.5 * ce + 0.5 * dice
-            return loss, ce, dice
-        else:
-            loss = self.loss_fn(logits, masks)
-            return loss, loss, torch.tensor(0.0, device=logits.device)
-
-    def training_step(self, batch, batch_idx):
-        imgs, masks = batch  # imgs: B x 3 x H x W, masks: B x H x W
-        logits = self(imgs)
-        loss, ce, dice_loss = self._compute_loss(logits, masks)
-
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-        if self.use_combo_loss:
-            self.log("train/ce", ce, on_step=False, on_epoch=True)
-            self.log("train/dice_loss", dice_loss, on_step=False, on_epoch=True)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        imgs, masks = batch
-        logits = self(imgs)
-        loss, ce, dice_loss = self._compute_loss(logits, masks)
-
-        dice = multiclass_soft_dice(logits, masks)
-        miou = multiclass_soft_iou(logits, masks)
-
-        self.log("val/loss", loss, on_epoch=True, prog_bar=True)
-        self.log("val/dice", dice, on_epoch=True, prog_bar=True)
-        self.log("val/miou", miou, on_epoch=True, prog_bar=True)
-
-        return {
-            "val_loss": loss,
-            "val_dice": dice,
-            "val_miou": miou,
-        }
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
-            filter(lambda p: p.requires_grad, self.parameters()),
-            lr=self.hparams.lr,
-            weight_decay=self.hparams.weight_decay,
-        )
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=5
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "monitor": "val/loss",
-            },
-        }

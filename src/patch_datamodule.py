@@ -8,6 +8,7 @@ from patch_dataset import PatchDataset
 
 
 class PatchDataModule(pl.LightningDataModule):
+    """Loads patches with augmentations for train/val/test"""
     def __init__(
         self,
         root_dir="patches",
@@ -66,7 +67,8 @@ class PatchDataModule(pl.LightningDataModule):
 
 
         self.val_transform = A.Compose([
-            A.Normalize(),
+            A.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225]),
             ToTensorV2(),
         ])
 

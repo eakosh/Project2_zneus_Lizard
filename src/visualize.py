@@ -19,6 +19,7 @@ COLORS = {
 
 
 def colorize_mask(mask):
+    """Convert class mask to RGB colors"""
     h, w = mask.shape
     color = np.zeros((h, w, 3), dtype=np.uint8)
     for cls, rgb in COLORS.items():
@@ -27,6 +28,7 @@ def colorize_mask(mask):
 
 
 class SegmentationVisualizer(pl.Callback):
+    """Log predictions to W&B every N epochs"""
     def __init__(
         self,
         val_img_dir="patches/val/img",

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 
 class SoftDiceLoss(nn.Module):
+    """Dice loss for segmentation"""
     def __init__(self, smooth=1e-6):
         super().__init__()
         self.smooth = smooth
@@ -23,6 +24,7 @@ class SoftDiceLoss(nn.Module):
 
 
 class FocalLoss(nn.Module):
+    """Focal loss for class imbalance"""
     def __init__(self, gamma=2.0):
         super().__init__()
         self.gamma = gamma
@@ -35,6 +37,7 @@ class FocalLoss(nn.Module):
 
 
 class ComboLoss(nn.Module):
+    """Combined CE + Focal + Dice loss"""
     def __init__(self, gamma=2.0, ce_weight=0.3, focal_weight=0.5, dice_weight=0.2):
         super().__init__()
         self.focal = FocalLoss(gamma)

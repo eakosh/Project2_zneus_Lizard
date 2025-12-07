@@ -6,20 +6,19 @@ from tqdm import tqdm
 from PIL import Image
 import albumentations as A
 import pandas as pd
-from stain_norm import StainNormalizerMacenkoSafe
 
-
-PATCH_SIZE = 224
-STRIDE = 224
+PATCH_SIZE = 256
+STRIDE = 256
 AUGS_PER_PATCH = 2
 OUTPUT_DIR = "./patches"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-IMG1 = "/kaggle/input/lizard-dataset/lizard_images1/Lizard_Images1"
-IMG2 = "/kaggle/input/lizard-dataset/lizard_images2/Lizard_Images2"
-LABELS = "/kaggle/input/lizard-dataset/lizard_labels/Lizard_Labels/Labels"
-INFO_CSV = "/kaggle/input/lizard-dataset/lizard_labels/Lizard_Labels/info.csv"
+IMG1 = "data/lizard_images1/Lizard_Images1"
+IMG2 = "data/lizard_images2/Lizard_Images2"
+LABELS = "data/lizard_labels/Lizard_Labels/Labels"
+INFO_CSV = "data/lizard_labels/Lizard_Labels/info.csv"
+
 
 train_augs = A.Compose([
     A.HorizontalFlip(p=0.5),
@@ -58,6 +57,7 @@ train_augs = A.Compose([
 
 
 def load_image(fname):
+    """Load image from IMG1 or IMG2 folder"""
     p1 = os.path.join(IMG1, fname + ".png")
     p2 = os.path.join(IMG2, fname + ".png")
     if os.path.exists(p1): 
@@ -68,10 +68,11 @@ def load_image(fname):
 
 
 def load_semantic_mask(fname):
+    """Convert instance map to semantic mask using class labels"""
     mat = sio.loadmat(os.path.join(LABELS, fname + ".mat"))
-    inst_map = mat["inst_map"]  # instance ids
-    nuclei_id = np.squeeze(mat["id"])     # shape (N,)
-    classes = np.squeeze(mat["class"])    # shape (N,)
+    inst_map = mat["inst_map"]
+    nuclei_id = np.squeeze(mat["id"])     
+    classes = np.squeeze(mat["class"])    
 
     sem_mask = np.zeros_like(inst_map, dtype=np.uint8)
 
@@ -82,6 +83,7 @@ def load_semantic_mask(fname):
 
 
 def save_patch(img_patch, mask_patch, split, base_name):
+    """Save image and mask patches to train/val/test folders"""
     folder_img = os.path.join(OUTPUT_DIR, split, "img")
     folder_msk = os.path.join(OUTPUT_DIR, split, "mask")
     os.makedirs(folder_img, exist_ok=True)
@@ -91,7 +93,6 @@ def save_patch(img_patch, mask_patch, split, base_name):
     Image.fromarray(mask_patch).save(os.path.join(folder_msk, base_name + ".png"))
 
 
-stain_norm = StainNormalizerMacenkoSafe("./stain_reference.png")
 
 df = pd.read_csv(INFO_CSV)
 
@@ -103,7 +104,6 @@ for idx, row in tqdm(df.iterrows(), total=len(df)):
 
     try:
         img = load_image(fname)
-        img = stain_norm(img) 
         mask = load_semantic_mask(fname)
     except:
         continue

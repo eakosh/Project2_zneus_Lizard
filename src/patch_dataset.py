@@ -8,6 +8,7 @@ from config import *
 
 
 class PatchDataset(Dataset):
+    """Dataset with oversampling for rare classes (Neutrophil, Eosinophil)"""
     def __init__(self, root_dir, split="train", transform=None):
         self.split = split
         self.transform = transform

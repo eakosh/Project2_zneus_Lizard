@@ -1,3 +1,4 @@
+"""Config: paths, class weights, hyperparameters, W&B settings"""
 import torch
 
 # Data
