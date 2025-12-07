@@ -2,7 +2,7 @@
 import torch
 
 # Data
-DATA_ROOT = '/kaggle/input/lizard-patches-normed/patches'
+DATA_ROOT = '/kaggle/input/lizard-patches-256/patches'
 STAIN_REFERENCE_PATH = './data/stain_reference.png'
 
 CLASS_NAMES = {
