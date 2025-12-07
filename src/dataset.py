@@ -6,7 +6,6 @@ import scipy.io as sio
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
-import staintools
 
 
 def load_image(images_path_1: str, images_path_2: str, filename: str) -> np.ndarray:
@@ -48,24 +47,12 @@ def is_blank(img: np.ndarray, threshold: float = 0.9) -> bool:
     blank_ratio = np.mean(gray > 225)
     return blank_ratio > threshold
 
-
-class StainNormalizer:
-    def __init__(self, ref_img: np.ndarray):
-        self.normalizer = staintools.StainNormalizer(method='macenko')
-        target = staintools.LuminosityStandardizer.standardize(ref_img)
-        self.normalizer.fit(target)
-
-    def __call__(self, img: np.ndarray) -> np.ndarray:
-        img = staintools.LuminosityStandardizer.standardize(img)
-        return self.normalizer.transform(img)
-
-
 class LizardDataset(Dataset):
     def __init__(
         self,
         data_root: str,
         split: int,
-        patch_size: int = 256,
+        patch_size: int = 224,
         stride: Optional[int] = None,
         stain_reference_path: str = "./data/stain_reference.png",
         transform=None,
@@ -90,7 +77,6 @@ class LizardDataset(Dataset):
         self.blank_threshold = blank_threshold
 
         ref_img = np.array(Image.open(stain_reference_path).convert("RGB"))
-        self.stain_norm = StainNormalizer(ref_img)
 
         self.patch_index = []
         self.build_index()
@@ -121,7 +107,6 @@ class LizardDataset(Dataset):
         img_idx, fname, y0, x0 = self.patch_index[idx]
 
         img = load_image(self.path_images1, self.path_images2, fname)
-        img = self.stain_norm(img)
 
         patch = img[y0:y0+self.patch_size, x0:x0+self.patch_size]
 

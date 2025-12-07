@@ -41,16 +41,11 @@ def get_train_transforms():
             A.RGBShift(10, 10, 10, p=1.0),
             A.RandomBrightnessContrast(0.15, 0.15, p=1.0),
         ], p=0.3),
-
-        A.Normalize(mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225]),
         ToTensorV2(),
     ])
 
 
 def get_val_transforms():
     return A.Compose([
-        A.Normalize(mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225]),
         ToTensorV2(),
     ])

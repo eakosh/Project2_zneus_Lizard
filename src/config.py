@@ -1,7 +1,7 @@
 import torch
 
 # Data
-DATA_ROOT = '/kaggle/input/lizard-patches-224/patches'
+DATA_ROOT = '/kaggle/input/lizard-patches-normed/patches'
 STAIN_REFERENCE_PATH = './data/stain_reference.png'
 
 CLASS_NAMES = {
@@ -50,7 +50,7 @@ VAL_BATCH_SIZE = 8
 # Checkpointing
 CHECKPOINT_DIR = './checkpoints'
 LOG_DIR = './logs'
-EXPERIMENT_NAME = "unet_class_weights"
+EXPERIMENT_NAME = "unet_normed"
 
 # Weights & Biases
 USE_WANDB = True
