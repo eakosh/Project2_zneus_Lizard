@@ -29,7 +29,7 @@ class PatchDataset(Dataset):
 
             unique = set(np.unique(mask))
 
-            if len(unique & RARE_CLASSES) > 0:
+            if self.split == "train" and len(unique & RARE_CLASSES) > 0:
                 for _ in range(OVERSAMPLE_FACTOR):
                     self.img_paths.append(img_path)
             else:

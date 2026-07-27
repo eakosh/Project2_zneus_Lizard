@@ -50,7 +50,7 @@ VAL_BATCH_SIZE = 8
 # Checkpointing
 CHECKPOINT_DIR = './checkpoints'
 LOG_DIR = './logs'
-EXPERIMENT_NAME = "unet_class_weights"
+EXPERIMENT_NAME = "unet_attention_f_eval"
 
 # Weights & Biases
 USE_WANDB = True
