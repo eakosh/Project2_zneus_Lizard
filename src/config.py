@@ -1,7 +1,11 @@
+import os
+import glob
 import torch
 
 # Data
-DATA_ROOT = '/kaggle/input/lizard-patches-256/patches'
+_found = glob.glob('/kaggle/input/**/patches/train/img', recursive=True)
+DATA_ROOT = os.path.dirname(os.path.dirname(_found[0])) if _found else './patches'
+
 STAIN_REFERENCE_PATH = './data/stain_reference.png'
 
 CLASS_NAMES = {
