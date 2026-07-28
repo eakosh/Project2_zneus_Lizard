@@ -29,7 +29,7 @@ CLASS_WEIGHTS = torch.tensor([
 ], dtype=torch.float32)
 
 RARE_CLASSES = {1, 5}       # Neutrophil, Eosinophil
-OVERSAMPLE_FACTOR = 4 
+OVERSAMPLE_FACTOR = 2 
 
 # Model architecture
 NUM_CLASSES = 7
