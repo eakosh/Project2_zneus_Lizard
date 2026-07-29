@@ -154,6 +154,9 @@ class AttentionGate(nn.Module):
 
 class UNetSegmentation(pl.LightningModule):
     """U-Net with attention gates for nuclei segmentation"""
+
+    _STAGES = {"train": 0, "val": 1, "test": 2}
+
     def __init__(self,
                 class_weights,
                 in_channels=3,
@@ -189,6 +192,13 @@ class UNetSegmentation(pl.LightningModule):
             class_weights=class_weights,
         )
 
+        self.register_buffer("_inter", torch.zeros(3, num_classes, dtype=torch.long),
+                             persistent=False)
+        self.register_buffer("_union", torch.zeros(3, num_classes, dtype=torch.long),
+                             persistent=False)
+        self.register_buffer("_correct", torch.zeros(3, dtype=torch.long), persistent=False)
+        self.register_buffer("_total", torch.zeros(3, dtype=torch.long), persistent=False)
+
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -209,19 +219,62 @@ class UNetSegmentation(pl.LightningModule):
         logits = self(images)
         loss = self.loss_fn(logits, masks)
 
-        cls_ious = per_class_iou(logits, masks, self.num_classes)
-        miou = mean_iou(cls_ious)
-        acc = pixel_accuracy(logits, masks)
+        self._accumulate(logits.detach(), masks, stage)
 
         self.log(f"{stage}/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f"{stage}/miou", miou, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f"{stage}/acc", acc, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
-
-        for cls, iou in cls_ious.items():
-            self.log(f"{stage}/iou_class_{cls}", iou, on_epoch=True, prog_bar=False)
 
         return loss
-    
+
+    @torch.no_grad()
+    def _accumulate(self, logits, target, stage: str):
+        """Add this batch to the running intersection/union counts"""
+        row = self._STAGES[stage]
+        preds = torch.argmax(logits, dim=1)
+
+        for cls in range(self.num_classes):
+            pred_c = preds == cls
+            target_c = target == cls
+            self._inter[row, cls] += (pred_c & target_c).sum()
+            self._union[row, cls] += (pred_c | target_c).sum()
+
+        self._correct[row] += (preds == target).sum()
+        self._total[row] += target.numel()
+
+    def _log_epoch_metrics(self, stage: str):
+        """IoU over the whole split, then reset. Classes absent from the split are skipped."""
+        row = self._STAGES[stage]
+        inter = self._inter[row].double()
+        union = self._union[row].double()
+        present = union > 0
+
+        if present.any():
+            ious = inter[present] / union[present]
+            self.log(f"{stage}/miou", ious.mean(), prog_bar=True, sync_dist=True)
+
+            for cls in range(self.num_classes):
+                if present[cls]:
+                    self.log(f"{stage}/iou_class_{cls}", inter[cls] / union[cls],
+                             prog_bar=False, sync_dist=True)
+
+        if self._total[row] > 0:
+            self.log(f"{stage}/acc", self._correct[row].double() / self._total[row].double(),
+                     prog_bar=False, sync_dist=True)
+
+        self._inter[row].zero_()
+        self._union[row].zero_()
+        self._correct[row].zero_()
+        self._total[row].zero_()
+
+    def on_train_epoch_end(self):
+        self._log_epoch_metrics("train")
+
+    def on_validation_epoch_end(self):
+        self._log_epoch_metrics("val")
+
+    def on_test_epoch_end(self):
+        self._log_epoch_metrics("test")
+
+
     def compute_per_class_iou(self, logits, masks):
         return per_class_iou(logits, masks, self.num_classes)
 
