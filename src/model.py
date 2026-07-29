@@ -159,11 +159,13 @@ class UNetSegmentation(pl.LightningModule):
                 in_channels=3,
                 num_classes=7,
                 learning_rate=1e-3,
+                weight_decay=0.0,
                 ):
         super().__init__()
         self.save_hyperparameters()
 
         self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
         self.num_classes = num_classes
 
         self.inc = DoubleConv(in_channels, 64)
@@ -183,7 +185,8 @@ class UNetSegmentation(pl.LightningModule):
             gamma=2.0,
             ce_weight=0.3,
             focal_weight=0.5,
-            dice_weight=0.2
+            dice_weight=0.2,
+            class_weights=class_weights,
         )
 
 
@@ -232,4 +235,8 @@ class UNetSegmentation(pl.LightningModule):
         return self.shared_step(batch, "test")
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        return torch.optim.Adam(
+            self.parameters(),
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
+        )

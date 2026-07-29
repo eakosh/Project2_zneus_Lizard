@@ -39,7 +39,9 @@ def main(args):
     datamodule = PatchDataModule(
         root_dir=config.DATA_ROOT,
         batch_size=config.BATCH_SIZE,
+        val_batch_size=config.VAL_BATCH_SIZE,
         num_workers=config.NUM_WORKERS,
+        pin_memory=config.PIN_MEMORY,
     )
 
     datamodule.setup()
@@ -50,9 +52,10 @@ def main(args):
     print("Dataset ready\n")
 
     model = UNetSegmentation(
-        in_channels=3,
-        num_classes=7,
+        in_channels=config.IN_CHANNELS,
+        num_classes=config.NUM_CLASSES,
         learning_rate=config.LEARNING_RATE,
+        weight_decay=config.WEIGHT_DECAY,
         class_weights=config.CLASS_WEIGHTS,
     )
 
@@ -106,7 +109,7 @@ def main(args):
                 val_img_dir=config.VAL_IMG_DIR, 
                 val_mask_dir=config.VAL_MASK_DIR),
                 TQDMProgressBar(refresh_rate=20)],
-        logger=loggers if len(loggers) > 0 else None,
+        logger=loggers if len(loggers) > 0 else False,
         log_every_n_steps=10,
         precision="16-mixed" if torch.cuda.is_available() else 32,
         benchmark=True,

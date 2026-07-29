@@ -24,24 +24,35 @@ class SoftDiceLoss(nn.Module):
 
 
 class FocalLoss(nn.Module):
-    """Focal loss for class imbalance"""
-    def __init__(self, gamma=2.0):
+    """Focal loss for class imbalance, optionally alpha-weighted per class"""
+    def __init__(self, gamma=2.0, class_weights=None):
         super().__init__()
         self.gamma = gamma
+
+        if class_weights is None:
+            self.register_buffer("class_weights", None)
+        else:
+            self.register_buffer("class_weights", class_weights.clone().float())
 
     def forward(self, logits, targets):
         ce = F.cross_entropy(logits, targets, reduction='none')
         pt = torch.exp(-ce)
         focal = ((1 - pt) ** self.gamma) * ce
-        return focal.mean()
+
+        if self.class_weights is None:
+            return focal.mean()
+
+        alpha = self.class_weights[targets]
+        return (alpha * focal).sum() / alpha.sum().clamp_min(1e-8)
 
 
 class ComboLoss(nn.Module):
     """Combined CE + Focal + Dice loss"""
-    def __init__(self, gamma=2.0, ce_weight=0.3, focal_weight=0.5, dice_weight=0.2):
+    def __init__(self, gamma=2.0, ce_weight=0.3, focal_weight=0.5, dice_weight=0.2,
+                 class_weights=None):
         super().__init__()
-        self.focal = FocalLoss(gamma)
-        self.ce = nn.CrossEntropyLoss()
+        self.focal = FocalLoss(gamma, class_weights=class_weights)
+        self.ce = nn.CrossEntropyLoss(weight=class_weights)
         self.dice = SoftDiceLoss()
 
         self.w_focal = focal_weight

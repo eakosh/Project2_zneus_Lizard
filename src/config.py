@@ -6,8 +6,6 @@ import torch
 _found = _glob.glob('/kaggle/input/**/patches/train/img', recursive=True)
 DATA_ROOT = _os.path.dirname(_os.path.dirname(_found[0])) if _found else './patches'
 
-STAIN_REFERENCE_PATH = './data/stain_reference.png'
-
 CLASS_NAMES = {
     0: 'Background',
     1: 'Neutrophil',
@@ -29,17 +27,17 @@ CLASS_WEIGHTS = torch.tensor([
 ], dtype=torch.float32)
 
 RARE_CLASSES = {1, 5}       # Neutrophil, Eosinophil
-OVERSAMPLE_FACTOR = 2 
+OVERSAMPLE_FACTOR = 4 
 
 # Model architecture
 NUM_CLASSES = 7
 IN_CHANNELS = 3
-BASE_CHANNELS = 64
-DEPTH = 4
+
+# Patch extraction 
+PATCH_SIZE = 256
+STRIDE = 256           
 
 # Training parameters
-PATCH_SIZE = 256
-STRIDE = 128  
 BATCH_SIZE = 16
 NUM_WORKERS = 4
 PIN_MEMORY = True
@@ -49,7 +47,7 @@ MAX_EPOCHS = 100
 EARLY_STOPPING_PATIENCE = 8
 
 # Validation
-VAL_BATCH_SIZE = 8
+VAL_BATCH_SIZE = 16
 
 # Checkpointing
 CHECKPOINT_DIR = './checkpoints'

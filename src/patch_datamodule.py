@@ -13,13 +13,17 @@ class PatchDataModule(pl.LightningDataModule):
         self,
         root_dir="patches",
         batch_size=8,
+        val_batch_size=None,
         num_workers=4,
+        pin_memory=True,
         img_size=512,
     ):
         super().__init__()
         self.root_dir = root_dir
         self.batch_size = batch_size
+        self.val_batch_size = val_batch_size if val_batch_size is not None else batch_size
         self.num_workers = num_workers
+        self.pin_memory = pin_memory
         self.img_size = img_size
 
         self.train_transform = A.Compose([
@@ -97,23 +101,23 @@ class PatchDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            pin_memory=True,
+            pin_memory=self.pin_memory,
         )
 
     def val_dataloader(self):
         return DataLoader(
             self.val_ds,
-            batch_size=self.batch_size,
+            batch_size=self.val_batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=True,
+            pin_memory=self.pin_memory,
         )
 
     def test_dataloader(self):
         return DataLoader(
             self.test_ds,
-            batch_size=self.batch_size,
+            batch_size=self.val_batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=True,
+            pin_memory=self.pin_memory,
         )

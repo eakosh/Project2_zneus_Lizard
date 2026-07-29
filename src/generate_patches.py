@@ -7,8 +7,8 @@ from PIL import Image
 import albumentations as A
 import pandas as pd
 
-PATCH_SIZE = 256
-STRIDE = 256
+from config import PATCH_SIZE, STRIDE
+
 AUGS_PER_PATCH = 2
 OUTPUT_DIR = "./patches"
 

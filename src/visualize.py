@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from PIL import Image
 import pytorch_lightning as pl
@@ -68,7 +69,7 @@ class SegmentationVisualizer(pl.Callback):
             img = Image.open(path).convert("RGB")
             img_np = np.array(img)
 
-            mask_path = path.replace("/img/", "/mask/")
+            mask_path = os.path.join(self.val_mask_dir, os.path.basename(path))
             true_mask = np.array(Image.open(mask_path))
 
             img_tensor = self.to_tensor(img)
