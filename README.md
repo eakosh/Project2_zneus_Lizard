@@ -4,7 +4,7 @@
 ![Lightning](https://img.shields.io/badge/Lightning-792EE5?logo=lightning&logoColor=white)
 ![W&B](https://img.shields.io/badge/Tracked%20with-W%26B-yellow?logo=weightsandbiases&logoColor=white)
 
-> Semantic segmentation of six nucleus types in H&E-stained colon histology, using a U-Net with attention gates on the skip connections. Created as the second project in a pair from the ZNEUS course at FIIT
+> Semantic segmentation of six nucleus types in H&E-stained colon histology, using a U-Net with attention gates on the skip connections. Created as the second project in a pair from the ZNEUS course at FIIT, the first being [molecular bioresponse classification](https://github.com/eakosh/bioresponse-classification)
 
 
 ## Dataset
