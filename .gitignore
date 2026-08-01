@@ -211,3 +211,9 @@ patches/
 logs/
 checkpoints/
 checkpoints_old/
+
+assets/oversampling_on_attention.png
+assets/oversampling_on_attention2.png
+assets/without_oversampling_on_attention.png
+assets/without_oversampling_on_attention2.png
+assets/oversampling_comparison.png
